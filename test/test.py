@@ -219,7 +219,7 @@ class Adafruit_LSM303(Adafruit_I2C):
         ## LSM303D Magnetometer
         # M_RES = 11 (high resolution mode)
         # M_ODR = 001 (6.25 Hz ODR)
-        self.accel.write8(self.LSM303_CTRL5, 0x64)
+        self.accel.write8(self.LSM303_CTRL5, 0xE4) # 0x64 = temp off / 0xE4 = temp on
         # MFS = 01 (4 gauss full scale)
         self.accel.write8(self.LSM303_CTRL6, 0x20)
         # MLP = 0 (low power mode off)
@@ -232,7 +232,7 @@ class Adafruit_LSM303(Adafruit_I2C):
 
     # Interpret signed 12-bit acceleration component from list
     def accel12(self, list, idx):
-        n = (list[idx] | list[idx+1] << 8) # Low, high bytes
+        n = list[idx] | (list[idx+1] << 8) # Low, high bytes
         if n > 32767: n -= 65536           # 2's complement signed
         return n >> 4                      # 12-bit resolution
 
@@ -246,31 +246,41 @@ class Adafruit_LSM303(Adafruit_I2C):
         
         return n
 
+    # Interpret signed 16-bit 2's complement signed low, high
+    def compliment2lh(self, list, idx):
+        n = (list[idx]) | (list[idx+1] << 8)  # low, high bytes
+        return n if n < 32768 else n - 65536 # 2's complement signed
+
     def read(self):
-        # Read the accelerometer
-        list = self.accel.readList(self.LSM303_OUT_X_L_A | 0x80, 6)
-        res = [( self.accel12(list, 0),
-                 self.accel12(list, 2),
-                 self.accel12(list, 4) )]
+        
+        
 
         # Read the magnetometer
         list = self.accel.readList(self.LSM303D_OUT_X_L_M | 0x80, 6)
-        res.append((self.mag16(list, 0),
-                    self.mag16(list, 2),
-                    self.mag16(list, 4),
-                    0.0 )) # ToDo: Calculate orientation
-
+        res = [(self.compliment2lh(list, 0),
+                    self.compliment2lh(list, 2),
+                    self.compliment2lh(list, 4),
+                    0.0 )] # ToDo: Calculate orientation
+        # Read the accelerometer
+        list = self.accel.readList(self.LSM303_OUT_X_L_A | 0x80, 6)
+        res.append(( self.compliment2lh(list, 0),
+                 self.compliment2lh(list, 2),
+                 self.compliment2lh(list, 4) ))
         # Read the gyro
         list = self.gyro.readList(self.L3G_OUT_X_L | 0x80, 6)
-        res.append((self.accel12(list, 0),
-                    self.accel12(list, 2),
-                    self.accel12(list, 4)))
+        res.append((self.compliment2lh(list, 0),
+                    self.compliment2lh(list, 2),
+                    self.compliment2lh(list, 4)))
         return res
 
 
     #def setMagGain(gain=LSM303_MAGGAIN_1_3):
     #    self.mag.write8( LSM303_REGISTER_MAG_CRB_REG_M, gain)
 
+    def gettemp(self):
+        list = self.accel.readList(self.LSM303_TEMP_OUT_L, 2)
+        res = [(self.compliment2lh(list, 0))]
+        return res
 
 # Simple example prints accel/mag data once per second:
 if __name__ == '__main__':
@@ -279,8 +289,9 @@ if __name__ == '__main__':
 
     lsm = Adafruit_LSM303()
 
-    print '[(Accelerometer X, Y, Z), (Magnetometer X, Y, Z, orientation), (Gyro X, Y, Z)]'
+    print '[(Magnetometer X, Y, Z, orientation), (Accelerometer X, Y, Z), (Gyro X, Y, Z)]'
     print lsm.whoami()
+    print lsm.gettemp()
     while True:
         print lsm.read()
         sleep(1) # Output is fun to watch if this is commented out
